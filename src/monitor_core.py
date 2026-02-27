@@ -51,6 +51,7 @@ def get_all_crawlers():
     """获取所有爬虫类"""
     return {
         'chinabidding': ChinaBiddingCrawler,
+        'ccgp': CCGPCrawler,
     }
 
 # 默认内置网站配置 (用于通用爬虫)

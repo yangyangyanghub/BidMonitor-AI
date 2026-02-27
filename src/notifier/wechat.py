@@ -14,15 +14,16 @@ class PushPlusNotifier:
     
     API_URL = "https://www.pushplus.plus/send"
     
-    def __init__(self, token: str):
+    def __init__(self, token: str, topic: str = None):
         """
         初始化 PushPlus
-        
+
         Args:
             token: PushPlus 的 token (在官网获取)
+            topic: 群组编码，一对多推送时使用
         """
         self.token = token
-    
+        self.topic = topic
     def send(self, title: str, content: str, template: str = "html") -> bool:
         """
         发送消息
@@ -42,6 +43,8 @@ class PushPlusNotifier:
                 "content": content,
                 "template": template
             }
+            if self.topic:
+                data['topic'] = self.topic
             response = requests.post(self.API_URL, json=data, timeout=10)
             result = response.json()
             
@@ -152,14 +155,17 @@ class WeChatNotifier:
             config: {
                 'provider': 'pushplus' | 'enterprise',
                 'token': str (PushPlus token),
+                'topic': str (PushPlus 群组编码，实现一对多推送),
                 'webhook_url': str (企业微信 Webhook)
             }
         """
-        self.config = config
         self.provider = config.get('provider', 'pushplus')
         
         if self.provider == 'pushplus':
-            self.client = PushPlusNotifier(config.get('token', ''))
+            self.client = PushPlusNotifier(
+                config.get('token', ''),
+                config.get('topic', None)
+            )
         else:
             self.client = EnterpriseWeChatNotifier(config.get('webhook_url', ''))
     

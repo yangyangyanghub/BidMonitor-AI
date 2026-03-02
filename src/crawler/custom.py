@@ -233,12 +233,13 @@ class CustomCrawler(BaseCrawler):
         """专门解析招标计划公告的HTML页面"""
         from bs4 import BeautifulSoup
         from datetime import datetime
+        from urllib.parse import urlparse, parse_qs
         
         soup = BeautifulSoup(html, 'lxml')
         bids = []
         today = datetime.now().strftime('%Y-%m-%d')
         
-        # 查找所有详情链接 - 招标计划公告的链接包含 /infogk/detail.do 且 categoryid=zbjhgg
+        # 查找所有详情链接 - 招标计划公告的链接包含 /infogk/detail.do
         seen_urls = set()
         
         for a in soup.find_all('a', href=True):
@@ -248,7 +249,9 @@ class CustomCrawler(BaseCrawler):
             # 只提取招标计划公告的详情链接
             if '/infogk/detail.do' not in href:
                 continue
-            if 'categoryid=zbjhgg' not in href:
+            
+            # 检查是否包含infoid（招标计划公告的特征）
+            if 'infoid=' not in href:
                 continue
             
             # 过滤无效标题
@@ -257,8 +260,19 @@ class CustomCrawler(BaseCrawler):
             if href.lower().startswith(('javascript:', '#', 'mailto:', 'tel:')):
                 continue
             
-            # 补全URL
+            # 补全URL，确保包含正确的categoryid
             full_url = urljoin(self.url, href)
+            
+            # 解析URL并添加正确的categoryid
+            parsed = urlparse(full_url)
+            params = parse_qs(parsed.query)
+            
+            # 招标计划公告使用 categoryid=zbjhgg
+            if 'infoid' in params and 'categoryid' not in params:
+                infoid = params.get('infoid', [''])[0]
+                bdcodes = params.get('bdcodes', [''])[0]
+                base_detail_url = 'https://szj.hebei.gov.cn/zbtbfwpt/infogk/detail.do'
+                full_url = f"{base_detail_url}?categoryid=zbjhgg&infoid={infoid}&bdcodes={bdcodes}"
             
             if full_url in seen_urls:
                 continue

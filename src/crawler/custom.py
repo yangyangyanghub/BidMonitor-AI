@@ -343,7 +343,95 @@ class CustomCrawler(BaseCrawler):
         
         return bids
     
+    
     def _parse_html_generic(self, html: str) -> List[BidInfo]:
+        # 如果是河北政府采购意向公告，使用特殊解析
+        if 'ccgp-hebei.gov.cn' in self.url and '/zfcgyxgg/' in self.url:
+            return self._parse_ccgp_hebei_yx(html)
+        
+        # 通用HTML解析
+        soup = self.parse_html(html)
+        bids = []
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # 提取所有链接
+        seen_urls = set()
+        
+        for a in soup.find_all('a', href=True):
+            text = a.get_text(strip=True)
+            href = a['href']
+            
+            # 简单过滤无效链接
+            if not text or len(text) < 4: # 标题太短通常不是招标信息
+                continue
+            if href.lower().startswith(('javascript:', '#', 'mailto:', 'tel:')):
+                continue
+                
+            # 补全URL
+            full_url = urljoin(self.url, href)
+            
+            if full_url in seen_urls:
+                continue
+            seen_urls.add(full_url)
+            
+            # 创建BidInfo
+            # 注意：这里我们返回页面上所有看起来像标题的链接
+            # 真正的关键字过滤会在 MonitorCore 中进行
+            bids.append(BidInfo(
+                title=text,
+                url=full_url,
+                publish_date=today, # 通用爬虫很难准确提取日期，使用当前日期
+                source=self.name
+            ))
+        
+        return bids
+    
+    def _parse_ccgp_hebei_yx(self, html: str) -> List[BidInfo]:
+        """解析河北政府采购意向公告"""
+        from bs4 import BeautifulSoup
+        from datetime import datetime
+        
+        soup = BeautifulSoup(html, 'lxml')
+        bids = []
+        
+        # 查找所有包含政府采购意向的链接
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '')
+            text = a.get_text(strip=True)
+            
+            # 只提取政府采购意向的详情链接
+            if '/zfcgyxgg/' not in href or '.html' not in href:
+                continue
+            
+            # 过滤无效标题
+            if not text or len(text) < 4:
+                continue
+            if 'javascript:' in href.lower():
+                continue
+            
+            # 补全URL
+            full_url = urljoin(self.url, href)
+            
+            # 查找发布时间（通常在链接后面的兄弟元素中）
+            publish_date = datetime.now().strftime('%Y-%m-%d')
+            parent = a.find_parent(['div', 'li', 'tr'])
+            if parent:
+                # 尝试在父元素中查找时间
+                time_text = parent.get_text()
+                import re
+                date_match = re.search(r'(\d{4})-(\d{2})-(\d{2})', time_text)
+                if date_match:
+                    publish_date = date_match.group(0)
+            
+            bids.append(BidInfo(
+                title=text,
+                url=full_url,
+                publish_date=publish_date,
+                source=self.name
+            ))
+        
+        self.logger.debug(f"解析到 {len(bids)} 条河北政府采购意向公告")
+        return bids
         """通用的HTML解析方法"""
         soup = self.parse_html(html)
         bids = []

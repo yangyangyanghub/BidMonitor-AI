@@ -387,6 +387,510 @@ class CustomCrawler(BaseCrawler):
         return bids
     
     def _parse_ccgp_hebei_yx(self, html: str) -> List[BidInfo]:
+        """解析河北政府采购意向公告 - 使用Selenium访问详情页获取具体项目"""
+        from bs4 import BeautifulSoup
+        from datetime import datetime
+        from urllib.parse import urljoin
+        import re
+        import time
+        
+        soup = BeautifulSoup(html, 'lxml')
+        bids = []
+        
+        # 第一步：获取列表页中的详情页URL
+        detail_urls = []
+        detail_dates = {}
+        
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '')
+            text = a.get_text(strip=True)
+            
+            if '/zfcgyxgg/' not in href or '.html' not in href:
+                continue
+            
+            if not text or len(text) < 4:
+                continue
+            if 'javascript:' in href.lower():
+                continue
+            
+            full_url = urljoin(self.url, href)
+            if full_url not in detail_urls:
+                detail_urls.append(full_url)
+                parent = a.find_parent(['div', 'li', 'tr'])
+                if parent:
+                    date_match = re.search(r'(\d{4})-(\d{2})-(\d{2})', parent.get_text())
+                    if date_match:
+                        detail_dates[full_url] = date_match.group(0)
+        
+        self.logger.info(f"找到 {len(detail_urls)} 个意向公告，使用Selenium访问详情页获取具体项目...")
+        
+        # 尝试使用Selenium获取详情页数据
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.service import Service
+            from selenium.webdriver.chrome.options import Options
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            from webdriver_manager.chrome import ChromeDriverManager
+        except ImportError as e:
+            self.logger.warning(f"Selenium未安装，回退到简单解析: {e}")
+            return self._parse_ccgp_hebei_yx_simple(html)
+        
+        # 配置浏览器
+        options = Options()
+        options.add_argument('--headless=new')
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--window-size=1920,1080')
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+        
+        driver = None
+        try:
+            # 初始化浏览器
+            try:
+                driver = webdriver.Chrome(options=options)
+            except:
+                service = Service(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=options)
+            
+            max_pages = min(len(detail_urls), 5)  # 只处理前5个以节省时间
+            
+            for i, detail_url in enumerate(detail_urls[:max_pages]):
+                try:
+                    self.logger.debug(f"Selenium访问详情页 {i+1}/{max_pages}")
+                    
+                    driver.get(detail_url)
+                    time.sleep(3)  # 等待JavaScript加载
+                    
+                    # 获取渲染后的页面内容
+                    page_text = driver.page_source
+                    detail_soup = BeautifulSoup(page_text, 'lxml')
+                    
+                    # 提取日期
+                    publish_date = detail_dates.get(detail_url, datetime.now().strftime('%Y-%m-%d'))
+                    date_match = re.search(r'日期[：:]\s*(\d{4}-\d{2}-\d{2})', detail_soup.get_text())
+                    if date_match:
+                        publish_date = date_match.group(1)
+                    
+                    # 查找表格数据 - 使用包含项目名称的行
+                    # 查找包含数字序号和项目名称的行
+                    rows = detail_soup.find_all('tr')
+                    
+                    for row in rows:
+                        cells = row.find_all(['td', 'th'])
+                        if len(cells) < 3:
+                            continue
+                        
+                        # 提取单元格文本
+                        cell_texts = [c.get_text(strip=True) for c in cells]
+                        
+                        # 查找数据行：第一个单元格是数字（序号）
+                        if cell_texts and cell_texts[0].isdigit():
+                            # 序号, 项目名称, 需求, 预算, 时间
+                            if len(cell_texts) >= 2:
+                                project_name = cell_texts[1] if cell_texts[1] else ''
+                                if project_name and len(project_name) > 1 and project_name not in ['序号', '采购项目名称']:
+                                    budget = cell_texts[3] if len(cell_texts) > 3 and cell_texts[3].replace('.', '').isdigit() else ''
+                                    purchase_time = cell_texts[4] if len(cell_texts) > 4 and '-' in cell_texts[4] else ''
+                                    
+                                    full_title = project_name
+                                    if budget:
+                                        full_title += f" (预算:{budget}万元)"
+                                    if purchase_time:
+                                        full_title += f" (预计:{purchase_time})"
+                                    
+                                    bids.append(BidInfo(
+                                        title=full_title,
+                                        url=detail_url,
+                                        publish_date=publish_date,
+                                        source=self.name
+                                    ))
+                    
+                    time.sleep(0.5)  # 请求间隔
+                    
+                except Exception as e:
+                    self.logger.warning(f"处理详情页失败: {detail_url[:30]}... , 错误: {e}")
+        
+        except Exception as e:
+            self.logger.error(f"Selenium初始化失败: {e}")
+        
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                except:
+                    pass
+        
+        # 如果Selenium没有获取到数据，回退到简单解析
+        if not bids:
+            self.logger.warning("Selenium未获取到数据，回退到简单解析")
+            return self._parse_ccgp_hebei_yx_simple(html)
+        
+        self.logger.info(f"解析到 {len(bids)} 条具体采购项目")
+        return bids
+    
+    def _parse_ccgp_hebei_yx_simple(self, html: str) -> List[BidInfo]:
+        """简单的意向公告解析 - 直接解析列表页"""
+        from bs4 import BeautifulSoup
+        from datetime import datetime
+        from urllib.parse import urljoin
+        import re
+        
+        soup = BeautifulSoup(html, 'lxml')
+        bids = []
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '')
+            text = a.get_text(strip=True)
+            
+            if '/zfcgyxgg/' not in href or '.html' not in href:
+                continue
+            
+            if not text or len(text) < 4:
+                continue
+            if 'javascript:' in href.lower():
+                continue
+            
+            full_url = urljoin(self.url, href)
+            
+            # 尝试从父元素获取日期
+            parent = a.find_parent(['div', 'li', 'tr'])
+            publish_date = today
+            if parent:
+                date_match = re.search(r'(\d{4})-(\d{2})-(\d{2})', parent.get_text())
+                if date_match:
+                    publish_date = date_match.group(0)
+            
+            bids.append(BidInfo(
+                title=text,
+                url=full_url,
+                publish_date=publish_date,
+                source=self.name
+            ))
+        
+        return bids
+        """解析河北政府采购意向公告 - 访问详情页获取具体项目"""
+        from bs4 import BeautifulSoup
+        from datetime import datetime
+        from urllib.parse import urljoin
+        import re
+        import time
+        import requests
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        soup = BeautifulSoup(html, 'lxml')
+        bids = []
+        
+        # 第一步：获取列表页中的详情页URL
+        detail_urls = []
+        detail_dates = {}  # URL -> 日期
+        
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '')
+            text = a.get_text(strip=True)
+            
+            # 只提取政府采购意向的详情链接
+            if '/zfcgyxgg/' not in href or '.html' not in href:
+                continue
+            
+            # 过滤无效标题
+            if not text or len(text) < 4:
+                continue
+            if 'javascript:' in href.lower():
+                continue
+            
+            full_url = urljoin(self.url, href)
+            if full_url not in detail_urls:
+                detail_urls.append(full_url)
+                
+                # 尝试从父元素获取日期
+                parent = a.find_parent(['div', 'li', 'tr'])
+                if parent:
+                    date_match = re.search(r'(\d{4})-(\d{2})-(\d{2})', parent.get_text())
+                    if date_match:
+                        detail_dates[full_url] = date_match.group(0)
+        
+        self.logger.info(f"找到 {len(detail_urls)} 个意向公告，准备访问详情页获取具体项目...")
+        
+        # 第二步：访问每个详情页，解析表格中的具体项目
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        }
+        
+        # 只取前10个详情页（避免太慢）
+        max_pages = min(len(detail_urls), 10)
+        
+        for i, detail_url in enumerate(detail_urls[:max_pages]):
+            try:
+                self.logger.debug(f"访问详情页 {i+1}/{max_pages}: {detail_url[:50]}...")
+                
+                resp = requests.get(detail_url, headers=headers, timeout=15, verify=False)
+                resp.encoding = 'utf-8'
+                
+                detail_soup = BeautifulSoup(resp.text, 'lxml')
+                
+                # 查找表格中的表头
+                table_headers = detail_soup.find_all('th', string=lambda t: t and '序号' in t)
+                
+                for th in table_headers:
+                    table = th.find_parent('table')
+                    if not table:
+                        continue
+                    
+                    # 找到表格后，遍历所有行
+                    rows = table.find_all('tr')
+                    for row in rows:
+                        cells = row.find_all(['td', 'th'])
+                        if len(cells) < 6:
+                            continue
+                        
+                        # 检查第一列是否是数字序号
+                        first_cell = cells[0].get_text(strip=True)
+                        if first_cell.isdigit():
+                            # 这是数据行
+                            # 根据观察：序号在位置13或14，采购项目名称在14或15，等等
+                            # 使用更可靠的方法：找到包含项目名称的单元格
+                            project_name = ''
+                            budget = ''
+                            purchase_time = ''
+                            demand = ''
+                            
+                            # 遍历所有单元格找数据
+                            for j, cell in enumerate(cells):
+                                text = cell.get_text(strip=True)
+                                # 跳过表头
+                                if text in ['序号', '采购项目名称', '采购需求概况', '预算金额（万元）', '预计采购时间', '备注']:
+                                    continue
+                                # 跳过特殊格式的内容
+                                if '#_@_@' in text:
+                                    continue
+                                # 跳过日期和位置信息
+                                if '日期：' in text or '当前位置' in text:
+                                    continue
+                                
+                                # 根据列的位置和内容判断
+                                # 数字列（序号或预算）
+                                if j == 0 and text.isdigit():
+                                    continue  # 序号
+                                elif j == 3 or j == 14 or j == 15:
+                                    if text.isdigit() or (text.replace('.', '').isdigit() and '.' in text):
+                                        budget = text
+                                # 时间列
+                                elif j == 4 or j == 16 or j == 17:
+                                    if re.match(r'\d{4}-\d{2}', text):
+                                        purchase_time = text
+                                    elif text in ['序号', '采购项目名称', '采购需求概况']:
+                                        continue
+                                    elif text and len(text) < 15 and not text.startswith('#'):
+                                        # 可能是项目名称
+                                        if not project_name and text not in ['备注', '序号', '']:
+                                            project_name = text
+                                # 项目名称通常在第14-16列
+                                elif j == 14 or j == 15:
+                                    if text and not text.startswith('#') and text not in ['序号', '采购项目名称']:
+                                        project_name = text
+                                # 采购需求
+                                elif j == 15 or j == 16:
+                                    if text and len(text) > 5 and not text.replace('.', '').replace('-', '').isdigit():
+                                        demand = text[:50]  # 限制长度
+                            
+                            # 如果找到了项目名称
+                            if project_name and len(project_name) > 1:
+                                full_title = project_name
+                                if budget:
+                                    full_title += f" (预算:{budget}万元)"
+                                if purchase_time:
+                                    full_title += f" (预计:{purchase_time})"
+                                
+                                # 获取详情页的日期
+                                publish_date = detail_dates.get(detail_url, datetime.now().strftime('%Y-%m-%d'))
+                                
+                                # 查找日期
+                                date_match = re.search(r'日期[：:]\s*(\d{4}-\d{2}-\d{2})', detail_soup.get_text())
+                                if date_match:
+                                    publish_date = date_match.group(1)
+                                
+                                bids.append(BidInfo(
+                                    title=full_title,
+                                    url=detail_url,
+                                    publish_date=publish_date,
+                                    source=self.name
+                                ))
+                
+                # 添加请求间隔，避免请求过快
+                time.sleep(0.5)
+                
+            except Exception as e:
+                self.logger.warning(f"访问详情页失败: {detail_url[:30]}..., 错误: {e}")
+        
+        # 如果没有解析到任何数据，回退到简单的列表页解析
+        if not bids:
+            self.logger.warning("未能从详情页解析到数据，回退到列表页解析")
+            return self._parse_ccgp_hebei_yx_fallback(html)
+        
+        self.logger.info(f"解析到 {len(bids)} 条具体采购项目")
+        return bids
+    
+    def _parse_ccgp_hebei_yx_fallback(self, html: str) -> List[BidInfo]:
+        """回退解析方法：直接从HTML文本中提取项目信息"""
+        from bs4 import BeautifulSoup
+        from datetime import datetime
+        from urllib.parse import urljoin
+        import re
+        
+        soup = BeautifulSoup(html, 'lxml')
+        bids = []
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # 查找所有包含政府采购意向的链接
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '')
+            text = a.get_text(strip=True)
+            
+            # 只提取政府采购意向的详情链接
+            if '/zfcgyxgg/' not in href or '.html' not in href:
+                continue
+            
+            # 过滤无效标题
+            if not text or len(text) < 4:
+                continue
+            if 'javascript:' in href.lower():
+                continue
+            
+            # 补全URL
+            full_url = urljoin(self.url, href)
+            
+            bids.append(BidInfo(
+                title=text,
+                url=full_url,
+                publish_date=today,
+                source=self.name
+            ))
+        
+        return bids
+        """解析河北政府采购意向公告 - 访问详情页获取具体项目"""
+        from bs4 import BeautifulSoup
+        from datetime import datetime
+        from urllib.parse import urljoin
+        import re
+        import time
+        import requests
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        soup = BeautifulSoup(html, 'lxml')
+        bids = []
+        
+        # 第一步：获取列表页中的详情页URL
+        detail_urls = []
+        detail_dates = {}  # URL -> 日期
+        
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '')
+            text = a.get_text(strip=True)
+            
+            # 只提取政府采购意向的详情链接
+            if '/zfcgyxgg/' not in href or '.html' not in href:
+                continue
+            
+            # 过滤无效标题
+            if not text or len(text) < 4:
+                continue
+            if 'javascript:' in href.lower():
+                continue
+            
+            full_url = urljoin(self.url, href)
+            if full_url not in detail_urls:
+                detail_urls.append(full_url)
+                
+                # 尝试从父元素获取日期
+                parent = a.find_parent(['div', 'li', 'tr'])
+                if parent:
+                    date_match = re.search(r'(\d{4})-(\d{2})-(\d{2})', parent.get_text())
+                    if date_match:
+                        detail_dates[full_url] = date_match.group(0)
+        
+        self.logger.info(f"找到 {len(detail_urls)} 个意向公告，准备访问详情页获取具体项目...")
+        
+        # 第二步：访问每个详情页，解析表格中的具体项目
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        }
+        
+        # 只取前10个详情页（避免太慢）
+        max_pages = min(len(detail_urls), 10)
+        
+        for i, detail_url in enumerate(detail_urls[:max_pages]):
+            try:
+                self.logger.debug(f"访问详情页 {i+1}/{max_pages}: {detail_url[:50]}...")
+                
+                resp = requests.get(detail_url, headers=headers, timeout=15, verify=False)
+                resp.encoding = 'utf-8'
+                
+                detail_soup = BeautifulSoup(resp.text, 'lxml')
+                
+                # 查找表格
+                tables = detail_soup.find_all('table')
+                
+                for table in tables:
+                    rows = table.find_all('tr')
+                    if len(rows) < 2:  # 需要表头+数据行
+                        continue
+                    
+                    # 检查是否是项目表格（有采购项目名称列）
+                    header_row = rows[0]
+                    header_text = header_row.get_text()
+                    
+                    if '采购项目名称' in header_text or '采购需求' in header_text:
+                        # 这是一个项目表格
+                        for row in rows[1:]:  # 跳过表头
+                            cells = row.find_all(['td', 'th'])
+                            if len(cells) >= 2:
+                                # 提取项目名称（第一列）
+                                project_name = cells[0].get_text(strip=True)
+                                if not project_name or len(project_name) < 2:
+                                    continue
+                                
+                                # 提取预算金额（如果有）
+                                budget = ''
+                                if len(cells) >= 4:
+                                    budget = cells[3].get_text(strip=True)
+                                
+                                # 提取预计采购时间（如果有）
+                                purchase_time = ''
+                                if len(cells) >= 5:
+                                    purchase_time = cells[4].get_text(strip=True)
+                                
+                                # 获取详情页的日期
+                                publish_date = detail_dates.get(detail_url, datetime.now().strftime('%Y-%m-%d'))
+                                
+                                # 构建完整的项目标题
+                                full_title = f"{project_name}"
+                                if budget:
+                                    full_title += f" (预算:{budget}万元)"
+                                if purchase_time:
+                                    full_title += f" (预计:{purchase_time})"
+                                
+                                bids.append(BidInfo(
+                                    title=full_title,
+                                    url=detail_url,
+                                    publish_date=publish_date,
+                                    source=self.name
+                                ))
+                
+                # 添加请求间隔，避免请求过快
+                time.sleep(0.5)
+                
+            except Exception as e:
+                self.logger.warning(f"访问详情页失败: {detail_url[:30]}..., 错误: {e}")
+        
+        self.logger.info(f"解析到 {len(bids)} 条具体采购项目")
+        return bids
         """解析河北政府采购意向公告"""
         from bs4 import BeautifulSoup
         from datetime import datetime

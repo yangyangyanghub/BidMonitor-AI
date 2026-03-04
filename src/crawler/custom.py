@@ -488,20 +488,44 @@ class CustomCrawler(BaseCrawler):
                         cell_texts = [c.get_text(strip=True) for c in cells]
                         
                         # 查找数据行：第一个单元格是数字（序号）
-                        if cell_texts and cell_texts[0].isdigit():
-                            # 序号, 项目名称, 需求, 预算, 时间
-                            if len(cell_texts) >= 2:
-                                project_name = cell_texts[1] if cell_texts[1] else ''
-                                if project_name and len(project_name) > 1 and project_name not in ['序号', '采购项目名称']:
-                                    budget = cell_texts[3] if len(cell_texts) > 3 and cell_texts[3].replace('.', '').isdigit() else ''
-                                    purchase_time = cell_texts[4] if len(cell_texts) > 4 and '-' in cell_texts[4] else ''
-                                    
-                                    full_title = project_name
-                                    if budget:
-                                        full_title += f" (预算:{budget}万元)"
-                                    if purchase_time:
-                                        full_title += f" (预计:{purchase_time})"
-                                    
+                        first_cell = cell_texts[0].strip() if cell_texts else ''
+                        
+                        # 检查是否是数字序号
+                        try:
+                            seq_num = int(first_cell)
+                        except (ValueError, IndexError):
+                            continue
+                        
+                        # 这是数据行，提取项目信息
+                        if len(cell_texts) >= 2:
+                            project_name = cell_texts[1] if cell_texts[1] else ''
+                            if project_name and len(project_name) > 1 and project_name not in ['序号', '采购项目名称']:
+                                # 提取预算和时间
+                                budget = ''
+                                purchase_time = ''
+                                
+                                # 查找预算（第4列）和时间（第5列）
+                                for j in range(2, len(cell_texts)):
+                                    text = cell_texts[j].strip()
+                                    if not text:
+                                        continue
+                                    # 预算是数字
+                                    if text.replace('.', '').isdigit() and float(text) > 0:
+                                        if not budget:
+                                            budget = text
+                                    # 时间格式为 YYYY-MM
+                                    elif len(text) == 7 and text[4] == '-':
+                                        if not purchase_time:
+                                            purchase_time = text
+                                
+                                full_title = project_name
+                                if budget:
+                                    full_title += f" (预算:{budget}万元)"
+                                if purchase_time:
+                                    full_title += f" (预计:{purchase_time})"
+                                
+                                # 检查是否已存在
+                                if not any(b.title == full_title for b in bids):
                                     bids.append(BidInfo(
                                         title=full_title,
                                         url=detail_url,

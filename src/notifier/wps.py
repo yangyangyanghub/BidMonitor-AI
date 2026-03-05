@@ -83,10 +83,10 @@ class WPSNotifier:
                 
                 if response.status_code in [200, 201]:
                     success_count += 1
-                    logger.debug(f"[WPS] 发送成功: {bid.title[:30]}...")
+                    logger.info(f"[WPS] 发送成功: {bid.title[:30]}..., 状态码: {response.status_code}")
                 else:
                     failed_count += 1
-                    logger.warning(f"[WPS] 发送失败: {response.status_code} - {response.text[:100]}")
+                    logger.warning(f"[WPS] 发送失败: {response.status_code} - {response.text[:200]}")
             
             except requests.exceptions.RequestException as e:
                 failed_count += 1

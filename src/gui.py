@@ -1439,6 +1439,12 @@ class MonitorGUI:
             'phone_list': []
         }
         
+        # WPS多维表格配置 (默认空，需用户配置Webhook URL)
+        self.wps_config = {
+            'enable': False,
+            'webhook_url': ''
+        }
+        
         # 系统配置
         self.auto_start_enabled = False
         self.minimize_to_tray = True
@@ -3004,6 +3010,11 @@ class MonitorGUI:
                         self.wechat_enabled.set(config.get('wechat_enabled', True))
                     if hasattr(self, 'voice_enabled'):
                         self.voice_enabled.set(config.get('voice_enabled', False))
+                    # 加载WPS配置
+                    if hasattr(self, 'wps_config'):
+                        wps_cfg = config.get('wps_config', {})
+                        if wps_cfg:
+                            self.wps_config.update(wps_cfg)
                     # 同步UI复选框
                     if hasattr(self, 'autostart_var'):
                         self.autostart_var.set(self.auto_start_enabled)
@@ -3045,6 +3056,7 @@ class MonitorGUI:
                 'api_key': self.ai_key_var.get() if hasattr(self, 'ai_key_var') else '',
                 'model': self.ai_model_var.get().strip() if hasattr(self, 'ai_model_var') else 'claude-sonnet-4-5-20250929-thinking',
             },
+            'wps_config': self.wps_config if hasattr(self, 'wps_config') else {},
         }
         try:
             with open(self.CONFIG_FILE, 'w', encoding='utf-8') as f:

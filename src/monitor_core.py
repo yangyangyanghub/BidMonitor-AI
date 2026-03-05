@@ -177,6 +177,17 @@ class MonitorCore:
             except Exception as e:
                 self.log(f"[WARN] AI初始化失败: {e}")
         
+        # 初始化WPS通知器
+        self.wps_notifier = None
+        if hasattr(self, '_wps_config') and self._wps_config:
+            try:
+                from notifier.wps import WPSNotifier
+                if self._wps_config.get('enable') and self._wps_config.get('webhook_url'):
+                    self.wps_notifier = WPSNotifier(self._wps_config)
+                    self.log("[OK] WPS通知器已启用")
+            except Exception as e:
+                self.log(f"[WARN] WPS初始化失败: {e}")
+        
         # 初始化爬虫
         self.crawlers = self._init_crawlers()
     
@@ -186,8 +197,22 @@ class MonitorCore:
         self.log("All history data cleared.")
 
     def _load_config(self) -> Dict[str, Any]:
-        """加载配置文件"""
+        """加载配置文件 - 优先从user_config.json加载"""
         import yaml
+        import json
+        
+        # 优先从user_config.json加载
+        user_config_path = 'user_config.json'
+        if os.path.exists(user_config_path):
+            try:
+                with open(user_config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    # 保存wps_config供后续使用
+                    if config.get('wps_config'):
+                        self._wps_config = config['wps_config']
+                    return config
+            except Exception as e:
+                print(f"加载user_config.json失败: {e}")
         config_paths = [
             'config/config.yaml',
             '../config/config.yaml',
@@ -442,6 +467,19 @@ class MonitorCore:
     def _send_notifications(self, bids: List[BidInfo]):
         """发送通知"""
         success = False
+        
+        # 发送WPS通知
+        if self.wps_notifier:
+            try:
+                self.log(f"[DEBUG] WPS准备发送 {len(bids)} 条数据...")
+                wps_result = self.wps_notifier.send(bids)
+                self.log(f"[DEBUG] WPS发送结果: {wps_result}")
+                if wps_result:
+                    self.log(f"[OK] WPS多维表格同步完成 ({len(bids)} 条)")
+                else:
+                    self.log(f"[ERROR] WPS多维表格同步失败")
+            except Exception as e:
+                self.log(f"[ERROR] WPS通知异常: {e}")
         
         if self.notify_method in ('email', 'both') and self.email_notifier:
             try:

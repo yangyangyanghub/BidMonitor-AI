@@ -1277,8 +1277,8 @@
             try {
                 const res = await fetch(API + '/api/wps');
                 const data = await res.json();
-                document.getElementById('wpsEnabled').checked = data.enabled || false;
-                document.getElementById('wpsWebhook').value = data.webhook || '';
+                document.getElementById('wpsEnabled').checked = data.enable || false;
+                document.getElementById('wpsWebhook').value = data.webhook_url || '';
                 document.getElementById('wpsToken').value = '';
                 document.getElementById('wpsTable').value = data.table_name || '';
             } catch (e) {
@@ -1293,8 +1293,8 @@
         async function saveWpsConfig() {
             const newToken = document.getElementById('wpsToken').value;
             const payload = {
-                enabled: document.getElementById('wpsEnabled').checked,
-                webhook: document.getElementById('wpsWebhook').value,
+                enable: document.getElementById('wpsEnabled').checked,
+                webhook_url: document.getElementById('wpsWebhook').value,
                 table_name: document.getElementById('wpsTable').value
             };
             if (newToken) payload.token = newToken;

@@ -1,0 +1,31 @@
+关键词：地下管网,无人机,土地测绘,土地评估,耕地,储备,地下管网,城乡建设用地,增减挂钩,永久基本农田,国土变更调查,调查监测,国土空间监测,全域土地综合整治,信息化,管理服务平台,运行维护,生命线,智慧系统,城市运行调度指挥,软硬件集成,测绘,规划,地理实体,三维模型,监管系统,服务平台,地理信息,意向
+"custom_sites": [
+    {
+      "name": "中国政府采购地方公告",
+      "url": "http://www.ccgp.gov.cn/cggg/dfgg/"
+    },
+    {
+      "name": "中国政府采购中央公告",
+      "url": "http://www.ccgp.gov.cn/cggg/zygg/"
+    },
+    {
+      "name": "河北省公共资源交易中心",
+      "url": "https://szj.hebei.gov.cn/hbjyzx/jydt/001002/001002001/subNoticeGov.html"
+    },
+    {
+      "name": "中国河北政府采购网",
+      "url": "https://www.ccgp-hebei.gov.cn/hd/hd/cggg/zbggAAAS/"
+    },
+    {
+      "name": "河北省招投标计划公告",
+      "url": "https://szj.hebei.gov.cn/zbtbfwpt/tender/xxgk/list.do?selectype=zbpro"
+    },
+    {
+      "name": "河北省招投标招标公告",
+      "url": "https://szj.hebei.gov.cn/zbtbfwpt/tender/xxgk/list.do?selectype=zbgg"
+    },
+    {
+      "name": "中国河北政府采购意向公告",
+      "url": "https://www.ccgp-hebei.gov.cn/province/zfcgyxgg/zfcgyx/"
+    }
+  ],

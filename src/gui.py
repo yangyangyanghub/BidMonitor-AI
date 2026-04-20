@@ -3538,13 +3538,28 @@ class MonitorGUI:
     
     def _on_close(self):
         """窗口关闭事件处理"""
-        if self.minimize_to_tray and self.tray and TRAY_AVAILABLE:
-            # 最小化到托盘
-            self.root.withdraw()
-            if not hasattr(self, '_tray_started'):
-                self.tray.start()
-                self._tray_started = True
-            self.log("程序已最小化到系统托盘")
+        if self.minimize_to_tray:
+            if self.tray and TRAY_AVAILABLE:
+                # 最小化到托盘
+                self.root.withdraw()
+                if not hasattr(self, '_tray_started'):
+                    self.tray.start()
+                    self._tray_started = True
+                self.log("程序已最小化到系统托盘")
+            else:
+                # 托盘不可用，提示用户
+                result = messagebox.askyesno(
+                    "托盘不可用",
+                    "系统托盘功能不可用（可能未安装 pystray）。\n\n"
+                    "是否现在退出程序？\n"
+                    "（点击'否'将隐藏窗口到后台，但无法通过托盘恢复）"
+                )
+                if result:
+                    self._quit_app()
+                else:
+                    # 用户选择不退出，隐藏窗口
+                    self.root.withdraw()
+                    self.log("程序已隐藏到后台（托盘不可用）")
         else:
             self._quit_app()
     

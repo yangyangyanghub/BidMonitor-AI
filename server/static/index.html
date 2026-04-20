@@ -657,6 +657,8 @@
                         style="color:var(--primary)">配置 ▶</span></div>
                 <div class="toggle-switch" onclick="showAiConfig()"><span>🤖 AI智能分析</span><span
                         style="color:var(--primary)">配置 ▶</span></div>
+                <div class="toggle-switch" onclick="showWpsConfig()"><span>📊 WPS表格同步</span><span
+                        style="color:var(--primary)">配置 ▶</span></div>
             </div>
             <div class="card">
                 <div class="card-title">⚠️ 危险操作</div>
@@ -788,6 +790,34 @@
                 <button class="btn btn-outline" style="flex:1" onclick="closeModal('aiModal')">取消</button>
                 <button class="btn btn-warning" style="flex:1" onclick="testAi()">🧪 测试</button>
                 <button class="btn btn-primary" style="flex:1" onclick="saveAiConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+    <!-- WPS配置弹窗 -->
+    <div id="wpsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><span>📊 WPS表格同步配置</span><button class="modal-close"
+                    onclick="closeModal('wpsModal')">×</button></div>
+            <div class="modal-body">
+                <div class="toggle-switch"><span>启用WPS同步</span><label class="switch"><input type="checkbox"
+                            id="wpsEnabled"><span class="slider"></span></label></div>
+                <div class="config-section"><label class="config-label">Webhook URL</label><input type="text"
+                        class="config-input" id="wpsWebhook" placeholder="https://wps.cn/api/webhook/...">
+                    <p class="hint">WPS开放平台生成的Webhook地址</p>
+                </div>
+                <div class="config-section"><label class="config-label">Token</label><input type="password"
+                        class="config-input" id="wpsToken">
+                    <p class="hint">WPS API访问凭证，留空保留原值</p>
+                </div>
+                <div class="config-section"><label class="config-label">表格名称</label><input type="text"
+                        class="config-input" id="wpsTable" placeholder="招标信息汇总表">
+                    <p class="hint">目标表格的文件名</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" style="flex:1" onclick="closeModal('wpsModal')">取消</button>
+                <button class="btn btn-warning" style="flex:1" onclick="testWps()">🧪 测试</button>
+                <button class="btn btn-primary" style="flex:1" onclick="saveWpsConfig()">保存</button>
             </div>
         </div>
     </div>
@@ -1243,6 +1273,47 @@
             } catch (e) { alert('测试失败: ' + e.message); }
         }
 
+        async function showWpsConfig() {
+            try {
+                const res = await fetch(API + '/api/wps');
+                const data = await res.json();
+                document.getElementById('wpsEnabled').checked = data.enabled || false;
+                document.getElementById('wpsWebhook').value = data.webhook || '';
+                document.getElementById('wpsToken').value = '';
+                document.getElementById('wpsTable').value = data.table_name || '';
+            } catch (e) {
+                document.getElementById('wpsEnabled').checked = false;
+                document.getElementById('wpsWebhook').value = '';
+                document.getElementById('wpsToken').value = '';
+                document.getElementById('wpsTable').value = '';
+            }
+            document.getElementById('wpsModal').classList.add('active');
+        }
+
+        async function saveWpsConfig() {
+            const newToken = document.getElementById('wpsToken').value;
+            const payload = {
+                enabled: document.getElementById('wpsEnabled').checked,
+                webhook: document.getElementById('wpsWebhook').value,
+                table_name: document.getElementById('wpsTable').value
+            };
+            if (newToken) payload.token = newToken;
+            try {
+                await fetch(API + '/api/wps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                closeModal('wpsModal');
+                alert('WPS配置已保存！');
+            } catch (e) { alert('保存失败: ' + e.message); }
+        }
+
+        async function testWps() {
+            await saveWpsConfig();
+            try {
+                const res = await fetch(API + '/api/test/wps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+                const data = await res.json();
+                alert(data.message);
+            } catch (e) { alert('测试失败: ' + e.message); }
+        }
+
         async function saveFullConfig() {
             try {
                 await fetch(API + '/api/config/full', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentConfig) });
@@ -1339,11 +1410,45 @@
             return d.innerHTML;
         }
 
+        // SSE实时日志
+        let logES = null, logUsePolling = false;
+
+        function initLogStream() {
+            try {
+                logES = new EventSource(API + '/api/logs/stream');
+                logES.onmessage = function(e) {
+                    const c = document.getElementById('logsContainer');
+                    if (c.querySelector('.loading')) c.innerHTML = '';
+                    const line = document.querySelector('.log-line');
+                    const isNearBottom = (c.scrollHeight - c.scrollTop - c.clientHeight) < 50;
+                    const div = document.createElement('div');
+                    let cls = 'log-line';
+                    if (e.data.includes('✅') || e.data.includes('成功') || e.data.includes('[OK]')) cls += ' success';
+                    else if (e.data.includes('❌') || e.data.includes('失败') || e.data.includes('[ERROR]') || e.data.includes('[FAILED]')) cls += ' error';
+                    div.className = cls;
+                    div.textContent = e.data;
+                    c.appendChild(div);
+                    if (isNearBottom) c.scrollTop = c.scrollHeight;
+                };
+                logES.onerror = function() {
+                    console.warn('[SSE] 连接失败，切换到轮询模式');
+                    logES.close();
+                    logES = null;
+                    logUsePolling = true;
+                    setInterval(loadLogs, 5000);
+                };
+            } catch(e) {
+                console.warn('[SSE] 不支持EventSource，使用轮询模式');
+                logUsePolling = true;
+                setInterval(loadLogs, 5000);
+            }
+        }
+
         // 初始化
         refreshStatus();
         loadLogs();
         setInterval(refreshStatus, 5000);
-        setInterval(loadLogs, 5000);
+        initLogStream();
     </script>
 </body>
 

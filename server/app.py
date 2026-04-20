@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Request, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
@@ -179,6 +179,12 @@ class StatusResponse(BaseModel):
     total_bids: int
     today_new: int
     interval: int
+
+class WpsConfigModel(BaseModel):
+    enable: Optional[bool] = None
+    webhook_url: Optional[str] = None
+    token: Optional[str] = None
+    table_name: Optional[str] = None
 
 # 定时任务：执行监控
 async def run_monitor_task():
@@ -670,10 +676,35 @@ async def get_results(limit: int = 50, offset: int = 0):
 
 @app.get("/api/logs")
 async def get_logs(limit: int = 100):
-    """获取最近的日志"""
+    """获取最近的日志（向后兼容，优先使用 /api/logs/stream）"""
     return {
         "logs": app_state.logs[-limit:]
     }
+
+@app.get("/api/logs/stream")
+async def log_stream():
+    """SSE 实时日志流"""
+    async def event_generator():
+        last_idx = 0
+        while True:
+            # 如果有新日志，推送
+            while last_idx < len(app_state.logs):
+                log_entry = app_state.logs[last_idx]
+                last_idx += 1
+                yield f"data: {log_entry}\n\n"
+            # 心跳保持连接（每秒发送一次注释防止超时）
+            yield ": heartbeat\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # 禁止 Nginx 缓冲
+        }
+    )
 
 @app.delete("/api/logs")
 async def clear_logs():
@@ -741,6 +772,36 @@ async def update_full_config(config: Dict[str, Any]):
     app_state.config.update(config)
     save_config(app_state.config)
     return {"success": True, "message": "配置已更新"}
+
+# ==================== WPS 配置管理 ====================
+
+@app.get("/api/wps")
+async def get_wps_config():
+    """获取 WPS 协作配置"""
+    default_wps = {
+        "enable": False,
+        "webhook_url": "",
+        "token": "",
+        "table_name": "",
+    }
+    wps_config = app_state.config.get("wps_config", default_wps)
+    return wps_config
+
+@app.post("/api/wps")
+async def update_wps_config(config: WpsConfigModel):
+    """更新 WPS 协作配置"""
+    update_data = config.dict(exclude_unset=True)
+    if "wps_config" not in app_state.config:
+        app_state.config["wps_config"] = {
+            "enable": False,
+            "webhook_url": "",
+            "token": "",
+            "table_name": "",
+        }
+    app_state.config["wps_config"].update(update_data)
+    save_config(app_state.config)
+    app_state.add_log("📋 WPS 配置已更新")
+    return {"success": True, "message": "WPS 配置已更新"}
 
 # 测试通知请求模型
 class TestNotifyRequest(BaseModel):

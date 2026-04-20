@@ -1,0 +1,78 @@
+# ============================================================
+# BidMonitor AI - Docker Compose 部署配置
+# ============================================================
+# 用法:
+#   docker-compose up -d          # 启动服务
+#   docker-compose logs -f        # 查看日志
+#   docker-compose down           # 停止服务
+#   docker-compose pull && up -d  # 更新镜像
+# ============================================================
+
+version: '3.8'
+
+services:
+  bidmonitor:
+    build:
+      context: ../..
+      dockerfile: server/deploy/Dockerfile
+    image: bidmonitor-ai:latest
+    container_name: bidmonitor
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # 持久化数据
+      - bidmonitor_data:/opt/bidmonitor/data
+      - bidmonitor_logs:/opt/bidmonitor/server/logs
+      # 可选：挂载配置文件（修改后重启生效）
+      # - ./server_config.json:/opt/bidmonitor/server/server_config.json:ro
+    environment:
+      - TZ=Asia/Shanghai
+      # 可选：覆盖默认配置
+      # - AUTH_USERNAME=admin
+      # - AUTH_PASSWORD=your_secure_password
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 可选：Nginx 反向代理
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: bidmonitor-nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./deploy/bidmonitor-nginx.conf:/etc/nginx/conf.d/bidmonitor.conf:ro
+  #     - nginx_logs:/var/log/nginx
+  #     # Let's Encrypt 证书（可选）
+  #     - ./certbot/conf:/etc/letsencrypt
+  #     - ./certbot/www:/var/www/certbot
+  #   depends_on:
+  #     - bidmonitor
+
+volumes:
+  bidmonitor_data:
+    driver: local
+  bidmonitor_logs:
+    driver: local
+  # nginx_logs:
+  #   driver: local

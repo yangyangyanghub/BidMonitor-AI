@@ -160,3 +160,60 @@ sudo systemctl restart bidmonitor
 # 查看服务状态
 sudo systemctl status bidmonitor
 ```
+
+---
+
+## 九、新版部署脚本（推荐）
+
+`server/deploy/` 目录下提供了一键部署脚本，支持 Ubuntu 20.04/22.04 和 CentOS 7/8/AlmaLinux：
+
+```bash
+cd /opt/bidmonitor/server/deploy/
+
+# 完整安装
+sudo bash deploy.sh --install
+
+# 更新代码
+sudo bash deploy.sh --update
+
+# 查看状态
+sudo bash deploy.sh --status
+
+# 备份数据
+sudo bash deploy.sh --backup
+```
+
+---
+
+## 十、Docker 部署
+
+```bash
+cd /opt/bidmonitor/server/deploy/
+
+# 启动服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f bidmonitor
+
+# 更新
+docker-compose pull && docker-compose up -d --build
+```
+
+---
+
+## 十一、Nginx 反向代理 + HTTPS
+
+```bash
+# 1. 复制配置
+sudo cp server/deploy/bidmonitor-nginx.conf /etc/nginx/sites-available/bidmonitor
+sudo ln -s /etc/nginx/sites-available/bidmonitor /etc/nginx/sites-enabled/
+
+# 2. 测试并重载
+sudo nginx -t && sudo systemctl reload nginx
+
+# 3. 启用 HTTPS
+sudo certbot --nginx -d your_domain.com
+```
+
+详见 `server/deploy/bidmonitor-nginx.conf` 中的 HTTPS 配置模板。

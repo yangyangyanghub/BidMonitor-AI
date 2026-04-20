@@ -1,0 +1,55 @@
+# Uvicorn 日志配置
+# 用于 systemd 服务中的结构化日志输出
+
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  default:
+    format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+  access:
+    format: "%(asctime)s [ACCESS] %(client_addr)s - %(request_line)s %(status_code)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: default
+    stream: ext://sys.stdout
+  access_console:
+    class: logging.StreamHandler
+    formatter: access
+    stream: ext://sys.stdout
+  file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: default
+    filename: /opt/bidmonitor/server/logs/server.log
+    maxBytes: 52428800  # 50MB
+    backupCount: 10
+    encoding: utf-8
+  access_file:
+    class: logging.handlers.RotatingFileHandler
+    formatter: access
+    filename: /opt/bidmonitor/server/logs/access.log
+    maxBytes: 52428800  # 50MB
+    backupCount: 10
+    encoding: utf-8
+
+loggers:
+  uvicorn:
+    handlers: [console, file]
+    level: INFO
+    propagate: false
+  uvicorn.error:
+    handlers: [console, file]
+    level: INFO
+    propagate: false
+  uvicorn.access:
+    handlers: [access_console, access_file]
+    level: INFO
+    propagate: false
+
+root:
+  handlers: [console, file]
+  level: INFO
